@@ -3,8 +3,6 @@ const readline = require('readline');
 const aws = require('aws-sdk');
 aws.config.update({ region: 'eu-west-1' });
 
-//var calculation = require('./calculation.js');
-    
 exports.handler = (event, context, callback) => {
 // read S3 object stream
     console.log("starting upload wrapper");
