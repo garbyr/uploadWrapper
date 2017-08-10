@@ -7,6 +7,7 @@ aws.config.update({ region: 'eu-west-1' });
     
 exports.handler = (event, context, callback) => {
 // read S3 object stream
+    console.log("starting upload wrapper");
     var s3 = new aws.S3({ apiVersion: '2006-03-01' });
     var bucket = event.Records[0].s3.bucket.name;
     var key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, ' '));
@@ -14,7 +15,7 @@ exports.handler = (event, context, callback) => {
         Bucket: bucket,
         Key: key
     };
-    console.log(bucket, key);
+    console.log("bucket ID: " + bucket +", key: "+key);
         getS3Header(s3, params, context, event, processFile);
     }
 
@@ -34,10 +35,10 @@ getS3Header = function (s3, params, context, event, _callback) {
     s3.headObject(params, function (error, response) {
         if (error) {
             context.callbackWaitsForEmptyEventLoop = false;
-            console.log("failed to get header object");
+            console.log("failed to get header from S3");
             console.log(error);
         } else {
-            console.log("got header");
+            console.log("got header from S3");
             uploadObj.user = response.Metadata.user;
             if (uploadObj.user == undefined) {
                 uploadObj.user = "NULL";
@@ -82,7 +83,7 @@ processFile = function (uploadObj, params, s3, event, context) {
     });
 
     /* TODO validate; if error publish unprocessed file topic and quit */
-
+    console.log("start reading file");
     rl.on('line', function (line) {
         if (header == false) {
             var array = line.split(",");
@@ -106,7 +107,7 @@ processFile = function (uploadObj, params, s3, event, context) {
                 calculateSRRI: calculateSRRI
             }
 
-            console.log("request update NAV " + ICIN);
+            console.log("request update NAV for ICIN :" + ICIN);
             sendLambdaSNS(event, context, message, "arn:aws:sns:eu-west-1:437622887029:updateNAV", "update NAV request");
 
         } else {
@@ -122,6 +123,7 @@ processFile = function (uploadObj, params, s3, event, context) {
 
 writeDynamoRecs = function (uuid, user, organisation, frequency, category, count, description, sequence) {
     //write to the database
+    console.log("write record to upload history");
     var doc = require('dynamodb-doc');
     var dynamo = new doc.DynamoDB();
     var tableName = "UploadHistory";
