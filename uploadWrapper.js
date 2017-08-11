@@ -24,7 +24,7 @@ getS3Header = function (s3, params, context, event, _callback) {
         uploadUUID: generateUUID(),
         user: "",
         organisation: "",
-        description: "",
+        comments: "",
         frequency: "",
         category: "",
         sequence: 0
@@ -45,9 +45,9 @@ getS3Header = function (s3, params, context, event, _callback) {
             if (uploadObj.organisation == undefined) {
                 uploadObj.organisation = "NULL";
             }
-            uploadObj.description = response.Metadata.description;
-            if (uploadObj.description == undefined) {
-                uploadObj.description = "NULL";
+            uploadObj.comments = response.Metadata.comments;
+            if (uploadObj.comments == undefined) {
+                uploadObj.comments = "NULL";
             }
             uploadObj.frequency = response.Metadata.frequency;
             if (uploadObj.frequency == undefined) {
@@ -101,7 +101,7 @@ processFile = function (uploadObj, params, s3, event, context) {
                 frequency: uploadObj.frequency,
                 user: uploadObj.user,
                 description: shareClassDescription,
-                sequence: uploadObj.sequence,
+                sequence: uploadObj.sequence.toString(),
                 calculateSRRI: calculateSRRI
             }
 
@@ -114,28 +114,29 @@ processFile = function (uploadObj, params, s3, event, context) {
       }) .on('close', function () {
     console.log("finished processing all records");
     //write header to db
-    writeDynamoRecs(uploadObj.uploadUUID, uploadObj.user, uploadObj.organisation, uploadObj.frequency, uploadObj.category, count, uploadObj.description, uploadObj.sequence)
+    writeDynamoRecs(uploadObj.uploadUUID, uploadObj.user, uploadObj.organisation, uploadObj.frequency, uploadObj.category, count, uploadObj.comments, uploadObj.sequence)
     //publish completion to SNS
 });
     }
 
-writeDynamoRecs = function (uuid, user, organisation, frequency, category, count, description, sequence) {
+writeDynamoRecs = function (uuid, user, organisation, frequency, category, count, comments, sequence) {
     //write to the database
     console.log("write record to upload history");
-    var doc = require('dynamodb-doc');
-    var dynamo = new doc.DynamoDB();
+    var dynamo = new aws.DynamoDB();
     var tableName = "UploadHistory";
     var item = {
-        RequestUUID: uuid,
-        CreatedTimeStamp: new Date().getTime(),
-        CreatedDateTime: new Date().toUTCString(),
-        Organisation: organisation,
-        CreateUser: user,
-        Frequency: frequency,
-        Category: category,
-        ShareClassCount: count,
-        Sequence: sequence,
+        RequestUUID: {"S": uuid},
+        CreatedTimeStamp: {"N": new Date().getTime().toString()},
+        CreatedDateTime: {"S": new Date().toUTCString()},
+        Organisation: {"S": organisation},
+        CreateUser: {"S": user},
+        Frequency: {"S": frequency},
+        Category: {"S": category},
+        ShareClassCount: {"N": count.toString()},
+        Sequence: {"N": sequence.toString()},
+        Comments: {"S": comments}
     }
+    console.log(item);
     var params = {
         TableName: tableName,
         Item: item
