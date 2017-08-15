@@ -2,6 +2,10 @@
 const readline = require('readline');
 const aws = require('aws-sdk');
 aws.config.update({ region: 'eu-west-1' });
+var DV = require('./dateValidator.js');
+var error = false;
+var errorMessage = [];
+
 
 exports.handler = (event, context, callback) => {
 // read S3 object stream
@@ -27,9 +31,10 @@ getS3Header = function (s3, params, context, event, _callback) {
         comments: "",
         frequency: "",
         category: "",
+        commences: "",
         sequence: 0
     }
-
+  
     s3.headObject(params, function (error, response) {
         if (error) {
             context.callbackWaitsForEmptyEventLoop = false;
@@ -40,29 +45,44 @@ getS3Header = function (s3, params, context, event, _callback) {
             uploadObj.user = response.Metadata.user;
             if (uploadObj.user == undefined) {
                 uploadObj.user = "NULL";
-            }
+                error = true;
+                errorMessage.push("user must not be blank");
+                 }
             uploadObj.organisation = response.Metadata.organisation;
             if (uploadObj.organisation == undefined) {
                 uploadObj.organisation = "NULL";
-            }
+                }
             uploadObj.comments = response.Metadata.comments;
             if (uploadObj.comments == undefined) {
                 uploadObj.comments = "NULL";
-            }
+                }
             uploadObj.frequency = response.Metadata.frequency;
             if (uploadObj.frequency == undefined) {
                 uploadObj.frequency = "NULL";
-            }
+                error = true;
+                errorMessage.push("frequency must not be blank");
+                }
             uploadObj.category = response.Metadata.category;
             if (uploadObj.category == undefined) {
                 uploadObj.category = "NULL";
+                error = true;
+                errorMessage.push("category must not be blank");
             }
-            uploadObj.sequence = response.Metadata.sequence;
-            /* force week to be two digits */
-            if (uploadObj.sequence == undefined) {
-                uploadObj.sequence = 0;
+            uploadObj.commences = response.Metadata.commences;
+            if (uploadObj.commences == undefined) {
+                uploadObj.commences = "NULL";
+                error=true;
+                errorMessage.push("commences must not be blank");
             }
-            _callback(uploadObj, params, s3, event, context);
+            uploadObj.sequence = createSequence(uploadObj.commences, uploadObj.frequency);
+            
+            if (error){
+               raiseError(uploadObj.uploadUUID, uploadObj.user, errorMessage)
+               console.log("upload process stopped - invalid parameters.  No ICINs have been updated.")
+               return;
+            }else{
+                _callback(uploadObj, params, s3, event, context);
+            }
         }
     });
 }
@@ -101,8 +121,9 @@ processFile = function (uploadObj, params, s3, event, context) {
                 frequency: uploadObj.frequency,
                 user: uploadObj.user,
                 description: shareClassDescription,
-                sequence: uploadObj.sequence.toString(),
-                calculateSRRI: calculateSRRI
+                expectedSequence: uploadObj.sequence.toString(),
+                calculateSRRI: calculateSRRI,
+                calculationDate: calculationDate
             }
 
             console.log("request update NAV for ICIN :" + ICIN);
@@ -172,16 +193,46 @@ function generateUUID() { // Public Domain/MIT
     });
 }
 
-
-testLambda = function (message, context) {
-    var event = {
-        Records: [
-            {
-                message
-            }
-        ]
-    };
-
-    // Call the Lambda function
-    calculation.handler(event, context);
+createSequence = function(dateIn, frequency){
+    var dateInDate = DV.dateFactory(dateIn);
+    
+    if(DV.isValidDate(dateInDate)){
+         var sequence = DV.sequenceFactory(dateInDate, frequency);
+    } else{
+        sequence = "";
+        error = true;
+        errorMessage.push("Invalid date entered: upload stopped. No NAV updated");
+    }
+    return sequence;
 }
+raiseError = function (requestUUID, user, errorMessage) {
+    //write to the database
+    var dynamo = new aws.DynamoDB();
+    var tableName = "errorLog";
+    var item = {
+        RequestUUID: {"S": requestUUID},
+        CreatedTimeStamp: {"N": new Date().getTime().toString()},
+        CreatedDateTime: {"S":  new Date().toUTCString()},
+        CreateUser: {"S": user},
+        Stage: {"S": "Upload Wrapper"},
+        Error: {"S": errorMessage}
+    }
+
+    var params = {
+        TableName: tableName,
+        Item: item
+    }
+
+    dynamo.putItem(params, function (err, data) {
+        if (err) {
+            console.log("ERROR", err);
+            context.fail();
+        }
+        else {
+            console.log("SUCCESS", data);
+            context.done();
+        }
+        
+    });
+}
+
